@@ -1,23 +1,29 @@
 from __future__ import annotations
+
 # typehint only
+from typing import Optional, Pattern, Tuple, List, Dict, Union
 from asyncio.events import AbstractEventLoop
 from asyncio.futures import Future
 from asyncio.tasks import Task
 from http.cookiejar import Cookie
+from aiohttp.client_ws import ClientWebSocketResponse
+from aiohttp.http_websocket import WSMessage
+from aiohttp import WSMsgType
 
 import re
 import random
 import asyncio
+from asyncio.exceptions import CancelledError
 import json
 import logging
 from datetime import datetime
-from typing import Optional, Pattern, Tuple, List, Dict, Union
-from aiohttp import ClientSession, WSMsgType
+from aiohttp import ClientSession
 import aioconsole
-from aiohttp.client_ws import ClientWebSocketResponse
-from aiohttp.http_websocket import WSMessage
-from py_any import PythonAnywhereApi, PythonAnywhere, py_any
+from py_any import PythonAnywhereApi, PythonAnywhere
 
+
+KBD_INTRPT: bool = False                         # cannot NOT use global
+GatheringAwaitable = Future
 logger: logging.Logger = logging.getLogger(__name__)
 
 def get_socket_url(html: str) -> str:
@@ -38,7 +44,7 @@ async def prompt_and_send(ws: ClientWebSocketResponse) -> None:
         new_msg_to_send: str = await aioconsole.ainput('$ ')
         if new_msg_to_send == 'bye':
             print('\nExiting...')
-            await ws.close()    # triggers .receive() in another func. 
+            await ws.close()    # triggers .receive() in func<receive_output>.
             break
         await ws.send_str(send_string(new_msg_to_send))
 
@@ -68,8 +74,9 @@ async def receive_output(ws: ClientWebSocketResponse) -> None:
             if KBD_INTRPT:      # KeyboardInterrupt cannot await .sleep() cuz
                                 # event loop is already closed
                 break           # break to prevent executing below stmt.
-
-            # required to allow .close() to execute from the func that closed the websocket
+            
+            # required to allow breaking out of while loop from func<prompt_and_send>
+            # then return back and break this loop
             await asyncio.sleep(0.05)
             break
 
@@ -81,30 +88,41 @@ async def initiate_conn(
     starting_commands: Optional[List[str]]
     ) -> None:
 
-    print('Console On URL:', url)
+    print('Console On URL:', url, '\n')
     starting_hex: str = '\\u001b'
+    input_string: str = 'a["' + starting_hex
 
-    await ws.receive()  # server sends first message. 'o'
+    await ws.receive()                       # server sends first message 'o'
     await ws.send_str(f'["{starting_hex}[{session_cookie};{console_id};;a"]')
     # just discard the first couple messages cuz it contains prev history
-    # if account is in tarpit, then an additional message is received.
+    # and may contain other info
     second_msg_obj: WSMessage  = await ws.receive()
     if 'tarpit' in second_msg_obj.data:
-        await ws.receive()
-    await ws.receive()
+        print('In Tarpit. Starting Slowly...')
+        await ws.receive()                   # tarpit receives n+1 more messages.
+    history: WSMessage = await ws.receive()  # either has history or is empty-ish
+
+    # if history is not present, then the console has reset or is just starting.
+    # it will take some time, wait for it to send the input strings.
+    if history.data == 'a[""]':
+        msg_obj: WSMessage = await ws.receive()
+        while not msg_obj.data.startswith(input_string):
+            msg_obj = await ws.receive()
     
     print('Connected Successfully. (Type `bye` to exit)')
     print(datetime.utcnow().strftime('%H:%M'), ' ', end='', flush=True)
 
     if starting_commands:
-        tasks: GatheringAwaitable = asyncio.gather(*[ws.send_str(send_string(cmd)) for cmd in starting_commands])
+        tasks: GatheringAwaitable = asyncio.gather(*[
+            ws.send_str(send_string(cmd)) for cmd in starting_commands
+        ])
         await tasks
 
     task_terminal: Task[None] = asyncio.create_task(prompt_and_send(ws))
     task_recv: Task[None] = asyncio.create_task(receive_output(ws))
-    await task_recv
     await task_terminal
-
+    await task_recv
+    
     # threading.Thread(target=ask_for_input, args=[ws]).start()
             
 # def ask_for_input(ws):
@@ -134,7 +152,7 @@ async def main(username: str, password: str, api_token: str, starting_commands: 
         console = consoles[0]
     except IndexError:
         print('No console available. Creating new..')
-        console = py_any.create_console()
+        console = pyany_api.create_console()
 
     console_id: int = console['id']
     console_frame_url: str = console['console_frame_url']
@@ -149,11 +167,12 @@ async def main(username: str, password: str, api_token: str, starting_commands: 
         async with session.ws_connect(url) as ws:
             try:
                 await initiate_conn(ws, url, session_cookie_val, console_id, starting_commands)
-            # except KeyboardInterrupt:     # doesn't catch ctrl+c on async code
-            except BaseException as e:
+            except (KeyboardInterrupt, CancelledError) as e:
+                import sys
                 global KBD_INTRPT
                 KBD_INTRPT = True
-                print(e)
+
+                print(sys.exc_info())
                 print('\n\nExiting....')
                 await close_socket(ws)
     
@@ -168,18 +187,12 @@ if __name__ == '__main__':
     logging.basicConfig(level=10)
     logging.disable()
 
-    commands: List[str] = [
-        'ls',
-        'date'
-    ]
-    
+    commands: List[str] = ['ls', 'date']
     cred: Tuple[str, str, str]
-    cred = ('username', 'password', 'apitoken')
-    
+    cred = ('USERNAME', 'PASSWORD', 'APITOKEN')
+
     print('Account:', cred[0])
-    KBD_INTRPT: bool = False                         # cannot NOT use global
     loop: AbstractEventLoop = asyncio.get_event_loop()
-    GatheringAwaitable = Future
     gathered: GatheringAwaitable = asyncio.gather(main(*cred, starting_commands=commands))
     try:
         loop.run_until_complete(gathered)
