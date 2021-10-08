@@ -134,10 +134,17 @@ async def close_socket(ws: ClientWebSocketResponse) -> None:
     await ws.close()
     print(await ws.receive())
 
-async def main(username: str, password: str, api_token: str, starting_commands: List[str] = None) -> None:
-    # get sessionid cookie first by logging in
+async def main(
+        username: str,
+        password: str,
+        api_token: str,
+        starting_commands: List[str] = None
+    ) -> None:
+    # get sessionid cookie first by logging in. 
     session_cookie_val: str = ''
-    pyany_browser: PythonAnywhere = PythonAnywhere(username, password)
+    pyany_browser: PythonAnywhere = PythonAnywhere(
+        username, password, fresh_login=False
+    )
     cookie: Cookie
     for cookie in pyany_browser.sess.cookies:
         if cookie.name == 'sessionid':
