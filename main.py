@@ -145,6 +145,8 @@ async def main(
     pyany_browser: PythonAnywhere = PythonAnywhere(
         username, password, fresh_login=False
     )
+    if not pyany_browser.is_logged_in:
+        raise ValueError('Incorrect Credentials.')
     cookie: Cookie
     for cookie in pyany_browser.sess.cookies:
         if cookie.name == 'sessionid':
