@@ -1,0 +1,3 @@
+aiohttp==3.7.4.post0
+aioconsole==0.3.1
+git+https://gitlab.com/zznixt07/py-any.git
