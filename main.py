@@ -88,7 +88,6 @@ async def initiate_conn(
     starting_commands: Optional[List[str]]
     ) -> None:
 
-    print('Console On URL:', url, '\n')
     starting_hex: str = '\\u001b'
     input_string: str = 'a["' + starting_hex
 
@@ -163,12 +162,14 @@ async def main(
         print('No console available. Creating new..')
         console = pyany_api.create_console()
 
+    print(f"Console on HTTP URL: {PythonAnywhereApi.origin}{console['console_url']}")
     console_id: int = console['id']
     console_frame_url: str = console['console_frame_url']
     logger.debug('console id: %d\nconsole frame url: %s', console_id, console_frame_url)
     logger.debug('session: %s', pyany_browser.sess.cookies)
     html: str = pyany_browser.sess.get(PythonAnywhere.origin + console_frame_url).text
     url: str = get_socket_url(html)
+    print('Console on WSS URL:', url, '\n')
 
     session: ClientSession
     ws: ClientWebSocketResponse
