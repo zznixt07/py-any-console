@@ -29,3 +29,5 @@ finally:
 	loop.run_until_complete(asyncio.sleep(0.7))
 	loop.close()
 ```
+# TODOs
+- Parse prefix msgs more nicely.

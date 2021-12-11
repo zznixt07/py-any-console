@@ -25,6 +25,12 @@ from py_any import PythonAnywhereApi, PythonAnywhere
 KBD_INTRPT: bool = False                         # cannot NOT use global
 GatheringAwaitable = Future
 logger: logging.Logger = logging.getLogger(__name__)
+file_handler: logging.FileHandler = logging.FileHandler("py_any_console.log", 'w')
+file_handler.setLevel(10)
+logger.addHandler(file_handler)
+logger.propagate = False
+logger.setLevel(10)
+
 
 def get_socket_url(html: str) -> str:
     console_hostname: str = re.search(r"Anywhere\.LoadConsole\((.+?),", html) \
@@ -37,16 +43,20 @@ def get_socket_url(html: str) -> str:
     return f'wss://{console_hostname}/sj/{rand_num}/{rand_string}/websocket'
 
 def send_string(strings: str) -> str:
-    return '["' + strings + '\\r\\n' + '"]'
+    return '["' + json.dumps(strings)[1:-1] + '\\r\\n' + '"]'
 
 async def prompt_and_send(ws: ClientWebSocketResponse) -> None:
+    new_msg_to_send: str
+    formatted_string: str
     while True:
-        new_msg_to_send: str = await aioconsole.ainput('$ ')
+        new_msg_to_send = await aioconsole.ainput('$ ')
         if new_msg_to_send == 'bye':
             print('\nExiting...')
             await ws.close()    # triggers .receive() in func<receive_output>.
             break
-        await ws.send_str(send_string(new_msg_to_send))
+        formatted_string = send_string(new_msg_to_send)
+        logger.debug('Sending text:: %s', formatted_string)
+        await ws.send_str(formatted_string)
 
 async def receive_output(ws: ClientWebSocketResponse) -> None:
     hex_val: str = '\u001b' # this will originally have 2 backslashes, but since it's
@@ -56,6 +66,7 @@ async def receive_output(ws: ClientWebSocketResponse) -> None:
         output: WSMessage = await ws.receive()
         if output.type == WSMsgType.TEXT:
             received: str = output.data
+            logger.debug('Recv text:: %s', received)
             if received[0] == 'a':
                 # first strip the char 'a'.
                 # ignore characters `["` and `"]` from left & right resp.
